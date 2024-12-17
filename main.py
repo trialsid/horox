@@ -6,10 +6,84 @@ from dotenv import load_dotenv
 import threading
 import re
 from datetime import datetime
+from flask_socketio import SocketIO, emit
+import sounddevice as sd
+import numpy as np
+import queue
 
 load_dotenv()
 
 app = Flask(__name__)
+
+socketio = SocketIO(app)
+
+# Audio configuration
+CHANNELS = 1
+RATE = 44100
+CHUNK = 1024
+audio_queue = queue.Queue()
+
+audio_stream = None
+selected_device = None
+
+def audio_callback(indata, frames, time, status):
+    """This is called for each audio block"""
+    if status:
+        print(status)
+    audio_queue.put(indata.copy())
+
+def audio_sender():
+    """Send audio data to connected clients"""
+    while True:
+        try:
+            data = audio_queue.get()
+            audio_data = data.tobytes()
+            socketio.emit('audio_stream', {'audio': audio_data})
+        except Exception as e:
+            print(f"Error in audio sender: {e}")
+
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
+
+def start_streaming():
+    """Start the audio stream"""
+    global audio_stream, selected_device
+    try:
+        # List available audio devices
+        devices = sd.query_devices()
+        print("\nAvailable audio devices:")
+        for i, dev in enumerate(devices):
+            print(f"{i}: {dev['name']}")
+        
+        # Get user input for device selection
+        device_index = input("\nEnter the number of your Bluetooth microphone device: ")
+        selected_device = int(device_index)
+        
+        print(f"\nStarting audio stream with device {selected_device}...")
+        
+        audio_stream = sd.InputStream(
+            device=selected_device,
+            channels=CHANNELS,
+            samplerate=RATE,
+            callback=audio_callback,
+            blocksize=CHUNK
+        )
+        audio_stream.start()
+        print("Audio streaming started successfully")
+        return True
+    except Exception as e:
+        print(f"Error starting audio stream: {e}")
+        return False
+
+# Start audio sender thread
+sender_thread = threading.Thread(target=audio_sender)
+sender_thread.daemon = True
+sender_thread.start()
 
 # --- Gemini Setup ---
 try:
@@ -163,5 +237,21 @@ def index():
 def get_speech_status():
     return jsonify(speech_status)
 
+@app.route("/start_audio", methods=["POST"])
+def start_audio():
+    global audio_stream
+    if audio_stream is None:
+        success = start_streaming()
+        if success:
+            return jsonify({"status": "success", "message": "Audio stream started"})
+        return jsonify({"status": "error", "message": "Failed to start audio stream"}), 500
+    return jsonify({"status": "error", "message": "Audio stream already running"}), 400
+
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Start audio sender thread
+    sender_thread = threading.Thread(target=audio_sender)
+    sender_thread.daemon = True
+    sender_thread.start()
+    
+    # Run the Flask app
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
