@@ -17,30 +17,82 @@ app = Flask(__name__)
 
 socketio = SocketIO(app)
 
-# Audio configuration
-CHANNELS = 1
-RATE = 44100
-CHUNK = 1024
-audio_queue = queue.Queue()
+class AudioManager:
+    def __init__(self):
+        self.stream = None
+        self.active_device = None
+        
+        # Audio configuration
+        self.CHANNELS = 1
+        self.RATE = 48000
+        self.CHUNK = 2048
+        self.FORMAT = np.float32
 
-audio_stream = None
-selected_device = None
+    def audio_callback(self, indata, frames, time, status):
+        """Called for each audio block"""
+        if status:
+            print(f"Audio callback status: {status}")
+        
+        # Normalize audio data
+        normalized_data = np.clip(indata, -1.0, 1.0)
+        
+        # Apply noise gate
+        noise_threshold = 0.02
+        noise_gate = np.where(np.abs(normalized_data) < noise_threshold, 0, normalized_data)
+        
+        # Convert to 16-bit integers
+        audio_data = (noise_gate * 32767).astype(np.int16)
+        
+        socketio.emit('audio_stream', {
+            'audio': audio_data.tobytes(),
+            'format': 'int16',
+            'channels': self.CHANNELS,
+            'rate': self.RATE,
+            'chunk': self.CHUNK
+        })
 
-def audio_callback(indata, frames, time, status):
-    """This is called for each audio block"""
-    if status:
-        print(status)
-    audio_queue.put(indata.copy())
-
-def audio_sender():
-    """Send audio data to connected clients"""
-    while True:
+    def start_streaming(self, device_id):
+        """Start audio streaming for specified device"""
         try:
-            data = audio_queue.get()
-            audio_data = data.tobytes()
-            socketio.emit('audio_stream', {'audio': audio_data})
+            # Stop existing stream if any
+            self.stop_streaming()
+            
+            # Validate device_id
+            devices = sd.query_devices()
+            if not 0 <= device_id < len(devices):
+                raise ValueError(f"Invalid device ID: {device_id}")
+            
+            # Create and start new stream
+            self.stream = sd.InputStream(
+                device=device_id,
+                channels=self.CHANNELS,
+                samplerate=self.RATE,
+                callback=self.audio_callback,
+                blocksize=self.CHUNK,
+                dtype=self.FORMAT,
+                latency='low'
+            )
+            self.stream.start()
+            self.active_device = device_id
+            return True, f"Started streaming from device {device_id}"
+            
         except Exception as e:
-            print(f"Error in audio sender: {e}")
+            return False, str(e)
+
+    def stop_streaming(self):
+        """Stop current audio stream if exists"""
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception as e:
+                print(f"Error stopping stream: {e}")
+            finally:
+                self.stream = None
+                self.active_device = None
+
+# Create global AudioManager instance
+audio_manager = AudioManager()
 
 @socketio.on('connect')
 def handle_connect():
@@ -50,40 +102,7 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected')
 
-def start_streaming():
-    """Start the audio stream"""
-    global audio_stream, selected_device
-    try:
-        # List available audio devices
-        devices = sd.query_devices()
-        print("\nAvailable audio devices:")
-        for i, dev in enumerate(devices):
-            print(f"{i}: {dev['name']}")
-        
-        # Get user input for device selection
-        device_index = input("\nEnter the number of your Bluetooth microphone device: ")
-        selected_device = int(device_index)
-        
-        print(f"\nStarting audio stream with device {selected_device}...")
-        
-        audio_stream = sd.InputStream(
-            device=selected_device,
-            channels=CHANNELS,
-            samplerate=RATE,
-            callback=audio_callback,
-            blocksize=CHUNK
-        )
-        audio_stream.start()
-        print("Audio streaming started successfully")
-        return True
-    except Exception as e:
-        print(f"Error starting audio stream: {e}")
-        return False
 
-# Start audio sender thread
-sender_thread = threading.Thread(target=audio_sender)
-sender_thread.daemon = True
-sender_thread.start()
 
 # --- Gemini Setup ---
 try:
@@ -237,21 +256,64 @@ def index():
 def get_speech_status():
     return jsonify(speech_status)
 
-@app.route("/start_audio", methods=["POST"])
+@app.route("/start_audio", methods=['POST'])
 def start_audio():
-    global audio_stream
-    if audio_stream is None:
-        success = start_streaming()
+    try:
+        data = request.get_json()
+        device_id = int(data['deviceId'])
+        
+        success, message = audio_manager.start_streaming(device_id)
+        
         if success:
-            return jsonify({"status": "success", "message": "Audio stream started"})
-        return jsonify({"status": "error", "message": "Failed to start audio stream"}), 500
-    return jsonify({"status": "error", "message": "Audio stream already running"}), 400
+            devices = sd.query_devices()
+            device_name = devices[device_id]['name']
+            return jsonify({
+                'success': True,
+                'deviceName': device_name
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
+@app.route("/stop_audio", methods=['POST'])
+def stop_audio():
+    try:
+        audio_manager.stop_streaming()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route("/get_devices")
+def get_devices():
+    try:
+        devices = sd.query_devices()
+        input_devices = [
+            {
+                'id': i,
+                'name': dev['name'],
+                'channels': dev['max_input_channels']
+            }
+            for i, dev in enumerate(devices)
+            if dev['max_input_channels'] > 0 and dev['hostapi'] == 0
+        ]
+        return jsonify(input_devices)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    
 if __name__ == "__main__":
-    # Start audio sender thread
-    sender_thread = threading.Thread(target=audio_sender)
-    sender_thread.daemon = True
-    sender_thread.start()
+    
     
     # Run the Flask app
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)

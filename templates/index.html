@@ -180,6 +180,92 @@
           font-size: 1.2rem;
         }
       }
+
+      .audio-controls {
+        background: #fff;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 20px auto;
+        max-width: 600px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .device-selector {
+        margin-bottom: 15px;
+        display: none;
+      }
+
+      .stream-status {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        margin: 15px 0;
+        padding: 10px;
+        border-radius: 5px;
+        background: #f8f9fa;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #28a745;
+        animation: pulse 2s infinite;
+      }
+
+      .level-meter {
+        height: 20px;
+        background: #eee;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 10px 0;
+      }
+
+      .level-meter-fill {
+        height: 100%;
+        width: 0%;
+        background: #28a745;
+        transition: width 0.1s ease;
+      }
+
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .stream-duration {
+        font-family: monospace;
+        font-size: 1.1em;
+      }
+
+      .device-list {
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .device-item {
+        padding: 10px;
+        margin: 5px 0;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+
+      .device-item:hover {
+        background: #f8f9fa;
+      }
+
+      .device-item.selected {
+        border-color: #28a745;
+        background: #e8f5e9;
+      }
     </style>
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -265,12 +351,15 @@
         ></div>
         <div id="total-time" style="display: none"></div>
         <div class="button-center">
-          <button id="new-start-btn" class="btn btn-success" style="display: none" onclick="resetForm()">
-              Start New
+          <button
+            id="new-start-btn"
+            class="btn btn-success"
+            style="display: none"
+            onclick="resetForm()"
+          >
+            Start New
           </button>
-      </div>
-          Start New
-        </button>
+        </div>
       </div>
     </div>
     <script>
@@ -493,59 +582,192 @@
         });
     </script>
 
+    <div class="audio-controls">
+      <h3 class="mb-3">Audio Stream Controls</h3>
 
-<div class="button-center" style="margin-bottom: 20px;">
-  <button onclick="startAudioStream()" class="btn btn-primary" id="audio-start-btn">
-      Start Audio Stream
-  </button>
-</div>
+      <!-- Initial Start Button -->
+      <button id="start-stream-btn" class="btn btn-primary w-100">
+        Start Audio Stream
+      </button>
 
-<script>
-  // Audio context setup
-  let audioContext;
-  let audioQueue = [];
-  const socket = io();
+      <!-- Device Selector -->
+      <div id="device-selector" class="device-selector">
+        <h4>Select Input Device</h4>
+        <div id="device-list" class="device-list"></div>
+      </div>
 
-  async function startAudioStream() {
-      try {
-          const response = await fetch('/start_audio', {
-              method: 'POST'
-          });
-          const data = await response.json();
-          
-          if (data.status === 'success') {
-              document.getElementById('audio-start-btn').disabled = true;
-              document.getElementById('audio-start-btn').textContent = 'Audio Stream Active';
-              initAudio();
-          } else {
-              alert('Failed to start audio stream: ' + data.message);
+      <!-- Stream Status -->
+      <div id="stream-status" class="stream-status">
+        <div class="status-dot"></div>
+        <span id="current-device">No device selected</span>
+        <span id="stream-duration" class="stream-duration">00:00:00</span>
+        <div class="level-meter">
+          <div id="level-meter-fill" class="level-meter-fill"></div>
+        </div>
+        <button id="stop-stream-btn" class="btn btn-danger w-100 mt-2">
+          Stop Stream
+        </button>
+      </div>
+    </div>
+
+    <script>
+      let audioContext;
+      let socket = io();
+      let streamStartTime = null;
+      let durationInterval = null;
+
+      // Initialize audio context
+      async function initAudio() {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext ||
+            window.webkitAudioContext)();
+        }
+      }
+
+      // Update duration display
+      function updateDuration() {
+        if (!streamStartTime) return;
+
+        const now = new Date();
+        const diff = now - streamStartTime;
+        const hours = Math.floor(diff / 3600000)
+          .toString()
+          .padStart(2, "0");
+        const minutes = Math.floor((diff % 3600000) / 60000)
+          .toString()
+          .padStart(2, "0");
+        const seconds = Math.floor((diff % 60000) / 1000)
+          .toString()
+          .padStart(2, "0");
+
+        document.getElementById(
+          "stream-duration"
+        ).textContent = `${hours}:${minutes}:${seconds}`;
+      }
+
+      // Start stream button click handler
+      document
+        .getElementById("start-stream-btn")
+        .addEventListener("click", async () => {
+          try {
+            // Get available devices
+            const response = await fetch("/get_devices");
+            const devices = await response.json();
+
+            // Show device selector
+            const deviceList = document.getElementById("device-list");
+            deviceList.innerHTML = "";
+
+            devices.forEach((device) => {
+              const deviceEl = document.createElement("div");
+              deviceEl.className = "device-item";
+              deviceEl.textContent = device.name;
+              deviceEl.dataset.deviceId = device.id;
+
+              deviceEl.addEventListener("click", () => selectDevice(device.id));
+              deviceList.appendChild(deviceEl);
+            });
+
+            document.getElementById("device-selector").style.display = "block";
+            document.getElementById("start-stream-btn").style.display = "none";
+          } catch (error) {
+            console.error("Error getting devices:", error);
+            alert("Error getting audio devices");
           }
-      } catch (error) {
-          console.error('Error:', error);
-          alert('Error starting audio stream');
+        });
+
+      // Device selection handler
+      async function selectDevice(deviceId) {
+        try {
+          const response = await fetch("/start_audio", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ deviceId }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            await initAudio();
+            streamStartTime = new Date();
+
+            // Update UI
+            document.getElementById("device-selector").style.display = "none";
+            document.getElementById("stream-status").style.display = "flex";
+            document.getElementById("current-device").textContent =
+              result.deviceName;
+
+            // Start duration counter
+            durationInterval = setInterval(updateDuration, 1000);
+          } else {
+            throw new Error(result.message);
+          }
+        } catch (error) {
+          console.error("Error starting stream:", error);
+          alert("Error starting audio stream");
+        }
       }
-  }
 
-  function initAudio() {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  }
+      // Stop stream button handler
+      document
+        .getElementById("stop-stream-btn")
+        .addEventListener("click", async () => {
+          try {
+            const response = await fetch("/stop_audio", { method: "POST" });
+            const result = await response.json();
 
-  socket.on('audio_stream', function(data) {
-      if (!audioContext) {
-          initAudio();
-      }
-      
-      // Convert received data to audio buffer and play
-      const audioData = new Float32Array(data.audio);
-      const buffer = audioContext.createBuffer(1, audioData.length, 44100);
-      buffer.copyToChannel(audioData, 0);
+            if (result.success) {
+              // Reset UI
+              document.getElementById("stream-status").style.display = "none";
+              document.getElementById("start-stream-btn").style.display =
+                "block";
 
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.start();
-  });
-</script>
+              // Clear intervals
+              clearInterval(durationInterval);
+              streamStartTime = null;
+            } else {
+              throw new Error(result.message);
+            }
+          } catch (error) {
+            console.error("Error stopping stream:", error);
+            alert("Error stopping audio stream");
+          }
+        });
+
+      // Audio stream handling
+      // Audio stream handling
+      socket.on("audio_stream", function (data) {
+        if (!audioContext) return;
+
+        // Convert int16 audio data to float32
+        const audioBuffer = new Int16Array(data.audio);
+        const float32Data = new Float32Array(audioBuffer.length);
+        for (let i = 0; i < audioBuffer.length; i++) {
+          float32Data[i] = audioBuffer[i] / 32767;
+        }
+
+        // Calculate audio level from float32 data
+        const sum = float32Data.reduce((acc, val) => acc + val * val, 0);
+        const rms = Math.sqrt(sum / float32Data.length);
+        const level = Math.min(100, Math.max(0, rms * 300)); // Adjust multiplier as needed
+        document.getElementById("level-meter-fill").style.width = `${level}%`;
+
+        // Create audio buffer with received parameters
+        const buffer = audioContext.createBuffer(
+          data.channels || 1,
+          float32Data.length,
+          data.rate || 48000
+        );
+        buffer.copyToChannel(float32Data, 0);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+        source.start();
+      });
+    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   </body>
