@@ -266,13 +266,51 @@
         border-color: #28a745;
         background: #e8f5e9;
       }
+
+      .choice-btn {
+        margin-top: 20px;
+        width: 80%;
+        max-width: 300px;
+      }
+      .pin-container {
+        margin-top: 20px;
+        text-align: center;
+      }
+      .pin-input {
+        margin: 0 auto;
+        width: 150px;
+        text-align: center;
+      }
+      .pin-error {
+        color: red;
+        margin-top: 5px;
+      }
     </style>
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
   </head>
   <body>
+    <div class="container" id="start-page">
+      <div class="form-card">
+        <h2 class="mb-4">Horoscope Kiosk</h2>
+        <button id="start-btn" class="btn btn-primary">Start</button>
+      </div>
+    </div>
+
+    <div class="container" id="choice-page" style="display: none">
+      <div class="form-card">
+        <h2 class="mb-4">Choose an Option</h2>
+        <button id="enter-details-btn" class="btn btn-primary choice-btn">
+          Enter Details
+        </button>
+        <button id="listen-details-btn" class="btn btn-secondary choice-btn">
+          Listen Details
+        </button>
+      </div>
+    </div>
+
     <div class="container">
-      <div class="form-card" id="form-container">
+      <div class="form-card" id="form-container" style="display: none">
         <h2 class="mb-4">Horoscope Input Form</h2>
         <form id="horoscopeForm" method="post">
           <div class="mb-3">
@@ -289,6 +327,7 @@
           <div class="mb-3">
             <label for="place_of_birth" class="form-label"
               >Place of Birth:</label
+            >
             >
             <input
               type="text"
@@ -323,6 +362,7 @@
             <label for="occupation" class="form-label"
               >Occupation (Optional):</label
             >
+            >
             <input
               type="text"
               class="form-control"
@@ -330,14 +370,31 @@
               name="occupation"
             />
           </div>
-          <button type="submit" class="btn btn-primary">
+          <button type="button" id="generate-btn" class="btn btn-primary">
             Generate Horoscope
           </button>
         </form>
+        <div id="pin-container" class="pin-container" style="display: none">
+          <input
+            type="password"
+            id="pin-input"
+            class="form-control pin-input"
+            placeholder="Enter PIN"
+            maxlength="4"
+          />
+          <div id="pin-error" class="pin-error"></div>
+          <button
+            type="button"
+            id="verify-pin-btn"
+            class="btn btn-primary mt-2"
+          >
+            Verify PIN
+          </button>
+        </div>
       </div>
     </div>
     <div class="container">
-      <div id="status-container">
+      <div id="status-container" style="display: none">
         <div id="message-container"></div>
         <div id="text-container"></div>
         <div id="playing-message" style="display: none">
@@ -357,22 +414,88 @@
             style="display: none"
             onclick="resetForm()"
           >
-            Start New
+            Start Again
           </button>
         </div>
       </div>
     </div>
+
+    <div class="container" id="listen-details-page" style="display: none">
+      <div class="audio-controls">
+        <h3 class="mb-3">Audio Stream Controls</h3>
+
+        <!-- Initial Start Button -->
+        <button id="start-stream-btn" class="btn btn-primary w-100">
+          Start Audio Stream
+        </button>
+
+        <!-- Device Selector -->
+        <div id="device-selector" class="device-selector">
+          <h4>Select Input Device</h4>
+          <div id="device-list" class="device-list"></div>
+        </div>
+
+        <!-- Stream Status -->
+        <div id="stream-status" class="stream-status">
+          <div class="status-dot"></div>
+          <span id="current-device">No device selected</span>
+          <span id="stream-duration" class="stream-duration">00:00:00</span>
+          <div class="level-meter">
+            <div id="level-meter-fill" class="level-meter-fill"></div>
+          </div>
+          <button id="stop-stream-btn" class="btn btn-danger w-100 mt-2">
+            Stop Stream
+          </button>
+        </div>
+      </div>
+    </div>
+
     <script>
+      // Hide form and status container initially
+      document.getElementById("form-container").style.display = "none";
+      document.getElementById("status-container").style.display = "none";
+      document.getElementById("listen-details-page").style.display = "none";
+
+      // Start button click handler
+      document
+        .getElementById("start-btn")
+        .addEventListener("click", function () {
+          document.getElementById("start-page").style.display = "none";
+          document.getElementById("choice-page").style.display = "block";
+        });
+
+      // Enter details button click handler
+      document
+        .getElementById("enter-details-btn")
+        .addEventListener("click", function () {
+          document.getElementById("choice-page").style.display = "none";
+          document.getElementById("form-container").style.display = "block";
+        });
+
+      // Listen details button
+      document
+        .getElementById("listen-details-btn")
+        .addEventListener("click", function () {
+          document.getElementById("choice-page").style.display = "none";
+          document.getElementById("listen-details-page").style.display =
+            "block";
+        });
+
       function resetForm() {
-        document.getElementById("form-container").style.display = "block";
+        // Navigate to the start page
+        document.getElementById("choice-page").style.display = "none";
+        document.getElementById("form-container").style.display = "none";
+        document.getElementById("status-container").style.display = "none";
+        document.getElementById("listen-details-page").style.display = "none";
+        document.getElementById("start-page").style.display = "block";
+
+        // Reset form and messages
         document.getElementById("horoscopeForm").reset();
-        // Clear error messages
         document.getElementById("nameError").textContent = "";
         document.getElementById("pobError").textContent = "";
         document.getElementById("dobError").textContent = "";
         document.getElementById("message-container").textContent = "";
         document.getElementById("text-container").textContent = "";
-        document.getElementById("status-container").style.display = "none";
         document.getElementById("playing-message").style.display = "none";
         document.getElementById("completed-message").style.display = "none";
         document.getElementById("error-message-speech").style.display = "none";
@@ -380,28 +503,162 @@
         document.getElementById("new-start-btn").style.display = "none";
       }
 
+      // Function to submit the form (this will be called after PIN verification)
+      function submitForm(event) {
+        document.getElementById("form-container").style.display = "none";
+
+        // Reset all messages and displays
+        document.getElementById("nameError").textContent = "";
+        document.getElementById("pobError").textContent = "";
+        document.getElementById("dobError").textContent = "";
+        document.getElementById("message-container").textContent = "";
+        document.getElementById("text-container").textContent = "";
+        document.getElementById("status-container").style.display = "block";
+        document.getElementById("playing-message").style.display = "none";
+        document.getElementById("completed-message").style.display = "none";
+        document.getElementById("error-message-speech").style.display = "none";
+        document.getElementById("total-time").style.display = "none";
+        document.getElementById("new-start-btn").style.display = "none";
+
+        // Show status container with initial "generating" message
+        document.getElementById("status-container").style.display = "block";
+        document.getElementById("message-container").textContent =
+          "Generating horoscope...";
+
+        // Ensure other elements are hidden initially
+        document.getElementById("playing-message").style.display = "none";
+        document.getElementById("completed-message").style.display = "none";
+        document.getElementById("error-message-speech").style.display = "none";
+        document.getElementById("total-time").style.display = "none";
+        document.getElementById("new-start-btn").style.display = "none";
+
+        // Continue with fetch...
+        // Update the fetch handling in the form submit event listener
+        fetch("/", {
+          method: "POST",
+          body: savedFormData, // Use the saved form data
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().then((err) => {
+                throw new Error(JSON.stringify(err));
+              });
+            }
+            return response.json();
+          })
+          // In the fetch handling code
+          .then((data) => {
+            if (data.error) {
+              throw new Error(data.error);
+            }
+
+            // Truncate text and show remaining count
+            const fullText = data.fullText;
+            const truncatedText = fullText.slice(0, 75) + "...";
+            const remainingCount = fullText.length - 75;
+
+            const textContainer = document.getElementById("text-container");
+            textContainer.innerHTML = truncatedText;
+
+            if (remainingCount > 0) {
+              const remainingCountElement = document.createElement("span");
+              remainingCountElement.className = "remaining-count";
+              remainingCountElement.textContent = `${remainingCount} more characters`;
+              textContainer.appendChild(remainingCountElement);
+            }
+
+            // Show playing message
+            document.getElementById("playing-message").style.display = "block";
+
+            // Wait 60 seconds before starting to check status
+            setTimeout(() => {
+              let checkCount = 0;
+              const maxChecks = 30; // Maximum number of checks (1 minute with 2-second interval)
+
+              function checkSpeechStatus() {
+                checkCount++;
+                fetch("/speech_status")
+                  .then((response) => response.json())
+                  .then((statusData) => {
+                    if (statusData.completed || checkCount >= maxChecks) {
+                      // Speech is done or we've reached max checks
+                      document.getElementById("playing-message").style.display =
+                        "none";
+
+                      if (
+                        statusData.completed &&
+                        statusData.startTime &&
+                        statusData.endTime
+                      ) {
+                        document.getElementById(
+                          "completed-message"
+                        ).textContent = "Completed";
+                        document.getElementById(
+                          "completed-message"
+                        ).style.display = "block";
+
+                        const totalTime =
+                          (new Date(statusData.endTime) -
+                            new Date(statusData.startTime)) /
+                          1000;
+                        document.getElementById(
+                          "total-time"
+                        ).textContent = `Total Time: ${totalTime.toFixed(
+                          2
+                        )} seconds`;
+                        document.getElementById("total-time").style.display =
+                          "block";
+                      } else {
+                        document.getElementById(
+                          "completed-message"
+                        ).textContent = "Playback finished";
+                        document.getElementById(
+                          "completed-message"
+                        ).style.display = "block";
+                      }
+
+                      document.getElementById("new-start-btn").style.display =
+                        "block";
+                    } else if (checkCount < maxChecks) {
+                      // Check again in 2 seconds
+                      setTimeout(checkSpeechStatus, 2000);
+                    }
+                  })
+                  .catch((error) => {
+                    console.error("Error checking status:", error);
+                    // Stop checking on error
+                    document.getElementById("playing-message").style.display =
+                      "none";
+                    document.getElementById("completed-message").textContent =
+                      "Playback finished";
+                    document.getElementById("completed-message").style.display =
+                      "block";
+                    document.getElementById("new-start-btn").style.display =
+                      "block";
+                  });
+              }
+
+              // Start checking status after 60 seconds
+              checkSpeechStatus();
+            }, 60000);
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            document.getElementById("message-container").textContent =
+              "An error occurred. Please try again.";
+            document.getElementById("form-container").style.display = "block";
+            document.getElementById("status-container").style.display = "none";
+          });
+      }
+
+      let savedFormData = null; // Variable to store the form data
+
       document
-        .getElementById("horoscopeForm")
-        .addEventListener("submit", function (event) {
+        .getElementById("generate-btn")
+        .addEventListener("click", function (event) {
           event.preventDefault();
-          document.getElementById("form-container").style.display = "none";
-
-          // Reset all messages and displays
-          document.getElementById("nameError").textContent = "";
-          document.getElementById("pobError").textContent = "";
-          document.getElementById("dobError").textContent = "";
-          document.getElementById("message-container").textContent = "";
-          document.getElementById("text-container").textContent = "";
-          document.getElementById("status-container").style.display = "block";
-          document.getElementById("playing-message").style.display = "none";
-          document.getElementById("completed-message").style.display = "none";
-          document.getElementById("error-message-speech").style.display =
-            "none";
-          document.getElementById("total-time").style.display = "none";
-          document.getElementById("new-start-btn").style.display = "none";
-
+          //event.stopPropagation();
           let isValid = true;
-
           // Form validation
           const nameInput = document.getElementById("name");
           if (!nameInput.value.trim()) {
@@ -429,150 +686,15 @@
             isValid = false;
           }
 
-          // At the start of form submission after validation passes
           if (isValid) {
-            // Hide form
-            document.getElementById("form-container").style.display = "none";
-
-            // Show status container with initial "generating" message
-            document.getElementById("status-container").style.display = "block";
-            document.getElementById("message-container").textContent =
-              "Generating horoscope...";
-
-            // Ensure other elements are hidden initially
-            document.getElementById("playing-message").style.display = "none";
-            document.getElementById("completed-message").style.display = "none";
-            document.getElementById("error-message-speech").style.display =
-              "none";
-            document.getElementById("total-time").style.display = "none";
-            document.getElementById("new-start-btn").style.display = "none";
-
-            // Continue with fetch...
-            // Update the fetch handling in the form submit event listener
-            fetch("/", {
-              method: "POST",
-              body: new FormData(event.target),
-            })
-              .then((response) => {
-                if (!response.ok) {
-                  return response.json().then((err) => {
-                    throw new Error(JSON.stringify(err));
-                  });
-                }
-                return response.json();
-              })
-              // In the fetch handling code
-              .then((data) => {
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-
-                // Truncate text and show remaining count
-                const fullText = data.fullText;
-                const truncatedText = fullText.slice(0, 75) + "...";
-                const remainingCount = fullText.length - 75;
-
-                const textContainer = document.getElementById("text-container");
-                textContainer.innerHTML = truncatedText;
-
-                if (remainingCount > 0) {
-                  const remainingCountElement = document.createElement("span");
-                  remainingCountElement.className = "remaining-count";
-                  remainingCountElement.textContent = `${remainingCount} more characters`;
-                  textContainer.appendChild(remainingCountElement);
-                }
-
-                // Show playing message
-                document.getElementById("playing-message").style.display =
-                  "block";
-
-                // Wait 60 seconds before starting to check status
-                setTimeout(() => {
-                  let checkCount = 0;
-                  const maxChecks = 30; // Maximum number of checks (1 minute with 2-second interval)
-
-                  function checkSpeechStatus() {
-                    checkCount++;
-                    fetch("/speech_status")
-                      .then((response) => response.json())
-                      .then((statusData) => {
-                        if (statusData.completed || checkCount >= maxChecks) {
-                          // Speech is done or we've reached max checks
-                          document.getElementById(
-                            "playing-message"
-                          ).style.display = "none";
-
-                          if (
-                            statusData.completed &&
-                            statusData.startTime &&
-                            statusData.endTime
-                          ) {
-                            document.getElementById(
-                              "completed-message"
-                            ).textContent = "Completed";
-                            document.getElementById(
-                              "completed-message"
-                            ).style.display = "block";
-
-                            const totalTime =
-                              (new Date(statusData.endTime) -
-                                new Date(statusData.startTime)) /
-                              1000;
-                            document.getElementById(
-                              "total-time"
-                            ).textContent = `Total Time: ${totalTime.toFixed(
-                              2
-                            )} seconds`;
-                            document.getElementById(
-                              "total-time"
-                            ).style.display = "block";
-                          } else {
-                            document.getElementById(
-                              "completed-message"
-                            ).textContent = "Playback finished";
-                            document.getElementById(
-                              "completed-message"
-                            ).style.display = "block";
-                          }
-
-                          document.getElementById(
-                            "new-start-btn"
-                          ).style.display = "block";
-                        } else if (checkCount < maxChecks) {
-                          // Check again in 2 seconds
-                          setTimeout(checkSpeechStatus, 2000);
-                        }
-                      })
-                      .catch((error) => {
-                        console.error("Error checking status:", error);
-                        // Stop checking on error
-                        document.getElementById(
-                          "playing-message"
-                        ).style.display = "none";
-                        document.getElementById(
-                          "completed-message"
-                        ).textContent = "Playback finished";
-                        document.getElementById(
-                          "completed-message"
-                        ).style.display = "block";
-                        document.getElementById("new-start-btn").style.display =
-                          "block";
-                      });
-                  }
-
-                  // Start checking status after 60 seconds
-                  checkSpeechStatus();
-                }, 60000);
-              })
-              .catch((error) => {
-                console.error("Error:", error);
-                document.getElementById("message-container").textContent =
-                  "An error occurred. Please try again.";
-                document.getElementById("form-container").style.display =
-                  "block";
-                document.getElementById("status-container").style.display =
-                  "none";
-              });
+            // Hide the form
+            //document.getElementById("horoscopeForm").style.display = "none";
+            // Show the PIN container
+            document.getElementById("pin-container").style.display = "block";
+            // Save the form data to the variable
+            savedFormData = new FormData(
+              document.getElementById("horoscopeForm")
+            );
           } else {
             document.getElementById("message-container").textContent =
               "Please fix the errors and try again.";
@@ -580,35 +702,28 @@
             document.getElementById("status-container").style.display = "none";
           }
         });
+
+      document
+        .getElementById("verify-pin-btn")
+        .addEventListener("click", function () {
+          const enteredPIN = document.getElementById("pin-input").value;
+
+          // Simulate PIN verification (replace with your actual logic)
+          if (enteredPIN === "1234") {
+            // Example: Correct PIN is "1234"
+            // Hide PIN container
+            document.getElementById("pin-container").style.display = "none";
+            // Reset PIN input and error message
+            document.getElementById("pin-input").value = "";
+            document.getElementById("pin-error").textContent = "";
+            // Submit the form
+            submitForm(); // Call submitForm directly, no need to pass anything
+          } else {
+            document.getElementById("pin-error").textContent =
+              "Incorrect PIN. Please try again.";
+          }
+        });
     </script>
-
-    <div class="audio-controls">
-      <h3 class="mb-3">Audio Stream Controls</h3>
-
-      <!-- Initial Start Button -->
-      <button id="start-stream-btn" class="btn btn-primary w-100">
-        Start Audio Stream
-      </button>
-
-      <!-- Device Selector -->
-      <div id="device-selector" class="device-selector">
-        <h4>Select Input Device</h4>
-        <div id="device-list" class="device-list"></div>
-      </div>
-
-      <!-- Stream Status -->
-      <div id="stream-status" class="stream-status">
-        <div class="status-dot"></div>
-        <span id="current-device">No device selected</span>
-        <span id="stream-duration" class="stream-duration">00:00:00</span>
-        <div class="level-meter">
-          <div id="level-meter-fill" class="level-meter-fill"></div>
-        </div>
-        <button id="stop-stream-btn" class="btn btn-danger w-100 mt-2">
-          Stop Stream
-        </button>
-      </div>
-    </div>
 
     <script>
       let audioContext;

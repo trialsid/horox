@@ -122,9 +122,9 @@ generation_config = {
 speech_status = {"completed": False, "startTime": None, "endTime": None}
 
 model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash-exp",
+    model_name="gemini-exp-1206",
     generation_config=generation_config,
-    system_instruction="I feed the generated text to a TTS model. So don't include extra precursor text. Direct horoscopy. Be practical and cautious in the advice. No subheading or subtitles. Just paragraphs. Users are rural Telugu people doing various occupations. Write like a screenplay writer. Discuss past, present and future subtly. End with \"మల్దకల్ Thimmappa Swamy blessings on you\"",
+    system_instruction="I feed the generated text to a TTS model. So don't include extra precurosor text. Direct horoscopy. Be practical and cautious in the tell. No subheading or subtitles. Just paragraphs. \n\nUsers are rural Telugu people doing various occupations. Write like a screenplay writer. Discuss past, present and future of the person. End with something like \"మల్దకల్ తిమ్మప్ప స్వామి ఆశీస్సులు మీపై ఎల్లప్పుడూ ఉంటాయి\"\n\nతెలుగులో పూర్తి స్థాయి పంచాంగం. ఈ రోజు తిథి, నక్షత్రం, వర్జ్యం, దుర్ముహూర్తం, రాహు కాలం మొదలైనవి తెలుసుకోవటానికి ఈ పంచాంగం ఉపయోగ పడుతుంది. అంతేకాకుండా ఏ రోజుకైనా, ఏ ప్రదేశానికైనా ఒక్క క్లిక్ తో క్షణంలో పంచాంగాన్ని పొందండి. తిథి, వార, నక్షత్ర, యోగ, కరణాల సమయాలతో పాటు, వర్జ్యం, దుర్ముహూర్తం లాంటి చెడు సమయాలు, అమృత ఘడియల లాంటి మంచి సమయాల వివరాలు, తారాబలం, చంద్ర బలం, ప్రతి రోజు లగ్నాంత్య సమయాలు, ప్రతి లగ్నానికి పుష్కరాంశలు, శుభాంశలు, సూర్యోదయ కాల గ్రహ స్థితి, మొదలైన ఎన్నో విషయాలతో, జ్యోతిష్కుల నుంచి, సామాన్య ప్రజల దాకా ప్రతి ఒక్కరికి, ప్రతీ రోజు ఉపయోగపడేలా రూపొందించిన ఏకైక ఆన్లైన్ పంచాంగ సాఫ్ట్వేర్ ఇది. మీకు కావలసిన తేది, మరియు ప్రదేశ వివరాలతో పాటు సూర్యోదయ కాల కుండలి ఏ పద్ధతిలో కావాలో సెలెక్ట్ చేసుకుని సబ్మిట్ చేయండి. రోజువారీ పూజాదికాల సంకల్పం నుంచి ముహూర్త నిర్ణయం వరకు ప్రతి ఒక్క అంశంలో మీకు ఉపయోగపడేలా ఈ పంచాంగం సాఫ్ట వేర్ రూపొందించటం జరిగింది.",
 )
 
 # --- Azure Speech Setup ---
