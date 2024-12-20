@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, url_for
 import google.generativeai as genai
 import azure.cognitiveservices.speech as speechsdk
 from dotenv import load_dotenv
@@ -9,19 +9,34 @@ from datetime import datetime
 from flask_socketio import SocketIO, emit
 import sounddevice as sd
 import numpy as np
-import queue
+import logging
+import requests
+import platform
 
 load_dotenv()
 
 app = Flask(__name__)
-
 socketio = SocketIO(app)
+
+# --- Logging Configuration ---
+if platform.system() == 'Windows':
+    LOG_FILE = 'C:\\Users\\surya\\Documents\\VSCode\\NOVEMBER 24\\AzTTS\\app.log'
+else:  # Assuming Linux (Raspberry Pi)
+    LOG_FILE = '/home/thikka/projects/horox/app.log'
+
+logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# --- Configuration (Move to a config file in production) ---
+PIN = os.environ.get("HOROX_PIN", "1234")  # Get PIN from environment variable or use default
+DEFAULT_AUDIO_DEVICE_ID = 0  # Set a default audio device ID if needed
 
 class AudioManager:
     def __init__(self):
         self.stream = None
         self.active_device = None
-        
+
         # Audio configuration
         self.CHANNELS = 1
         self.RATE = 48000
@@ -31,18 +46,18 @@ class AudioManager:
     def audio_callback(self, indata, frames, time, status):
         """Called for each audio block"""
         if status:
-            print(f"Audio callback status: {status}")
-        
+            logger.error(f"Audio callback status: {status}")
+
         # Normalize audio data
         normalized_data = np.clip(indata, -1.0, 1.0)
-        
+
         # Apply noise gate
         noise_threshold = 0.02
         noise_gate = np.where(np.abs(normalized_data) < noise_threshold, 0, normalized_data)
-        
+
         # Convert to 16-bit integers
         audio_data = (noise_gate * 32767).astype(np.int16)
-        
+
         socketio.emit('audio_stream', {
             'audio': audio_data.tobytes(),
             'format': 'int16',
@@ -51,17 +66,21 @@ class AudioManager:
             'chunk': self.CHUNK
         })
 
-    def start_streaming(self, device_id):
-        """Start audio streaming for specified device"""
+    def start_streaming(self, device_id=None):
+        """Start audio streaming for specified device or the default device"""
         try:
             # Stop existing stream if any
             self.stop_streaming()
-            
+
+            # Use default device ID if not provided
+            if device_id is None:
+                device_id = DEFAULT_AUDIO_DEVICE_ID
+
             # Validate device_id
             devices = sd.query_devices()
             if not 0 <= device_id < len(devices):
                 raise ValueError(f"Invalid device ID: {device_id}")
-            
+
             # Create and start new stream
             self.stream = sd.InputStream(
                 device=device_id,
@@ -75,8 +94,9 @@ class AudioManager:
             self.stream.start()
             self.active_device = device_id
             return True, f"Started streaming from device {device_id}"
-            
+
         except Exception as e:
+            logger.error(f"Error starting audio stream: {e}")
             return False, str(e)
 
     def stop_streaming(self):
@@ -86,7 +106,7 @@ class AudioManager:
                 self.stream.stop()
                 self.stream.close()
             except Exception as e:
-                print(f"Error stopping stream: {e}")
+                logger.error(f"Error stopping stream: {e}")
             finally:
                 self.stream = None
                 self.active_device = None
@@ -96,19 +116,17 @@ audio_manager = AudioManager()
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    logger.info('Client connected')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('Client disconnected')
-
-
+    logger.info('Client disconnected')
 
 # --- Gemini Setup ---
 try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 except KeyError:
-    print("Error: GEMINI_API_KEY environment variable not set.")
+    logger.error("Error: GEMINI_API_KEY environment variable not set.")
     exit()
 
 generation_config = {
@@ -129,13 +147,13 @@ model = genai.GenerativeModel(
 
 # --- Azure Speech Setup ---
 try:
-  speech_config = speechsdk.SpeechConfig(subscription=os.environ.get('SPEECH_KEY'), region=os.environ.get('SPEECH_REGION'))
-  audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
-  speech_config.speech_synthesis_voice_name = 'te-IN-MohanNeural'  # Default Telugu voice
+    speech_config = speechsdk.SpeechConfig(subscription=os.environ.get('SPEECH_KEY'),
+                                           region=os.environ.get('SPEECH_REGION'))
+    audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
+    speech_config.speech_synthesis_voice_name = 'te-IN-MohanNeural'  # Default Telugu voice
 except KeyError:
-    print("Error: SPEECH_KEY or SPEECH_REGION environment variables not set.")
+    logger.error("Error: SPEECH_KEY or SPEECH_REGION environment variables not set.")
     exit()
-
 
 def construct_prompt(name, place_of_birth, dob, problem, occupation):
     """Constructs the initial prompt based on user input."""
@@ -155,7 +173,6 @@ def construct_prompt(name, place_of_birth, dob, problem, occupation):
     )
     return "\n".join(prompt_parts)
 
-
 def get_horoscope(initial_prompt):
     """Generates the horoscope based on the constructed prompt."""
     chat_session = model.start_chat(
@@ -164,28 +181,33 @@ def get_horoscope(initial_prompt):
     try:
         response = chat_session.send_message(content=".")
         return response.text.replace("\n", " ")
-    except Exception as e:
-        print(f"Gemini API error: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error calling Gemini API: {e}")
         return None
-
+    except ValueError as e:
+        logger.error(f"Value error in Gemini API response: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred with Gemini API: {e}")
+        return None
 
 def speak_text(text, completion_callback):
     global speech_status
     speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-    
+
     def synthesis_started(evt):
         global speech_status
         start_time = datetime.now()
         speech_status["startTime"] = start_time
         speech_status["completed"] = False
-        print(f"Speech synthesis started at {start_time}")
+        logger.info(f"Speech synthesis started at {start_time}")
 
     def synthesis_completed(evt):
         global speech_status
         end_time = datetime.now()
         speech_status["endTime"] = end_time
         speech_status["completed"] = True  # Mark as completed
-        print(f"Speech synthesis completed at {end_time}")
+        logger.info(f"Speech synthesis completed at {end_time}")
         completion_callback(True, speech_status["startTime"], end_time, None)
 
     speech_synthesizer.synthesis_started.connect(synthesis_started)
@@ -193,17 +215,22 @@ def speak_text(text, completion_callback):
 
     try:
         speech_synthesis_result = speech_synthesizer.speak_text_async(text).get()
-        
+
         if speech_synthesis_result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            print("Speech synthesis completed successfully")
+            logger.info("Speech synthesis completed successfully")
         elif speech_synthesis_result.reason == speechsdk.ResultReason.Canceled:
-            print(f"Speech synthesis canceled: {speech_synthesis_result.cancellation_details.reason}")
+            cancellation_details = speech_synthesis_result.cancellation_details
+            logger.error(f"Speech synthesis canceled: {cancellation_details.reason}")
+            if cancellation_details.reason == speechsdk.CancellationReason.Error:
+                if cancellation_details.error_details:
+                    logger.error(f"Error details: {cancellation_details.error_details}")
             speech_status["completed"] = True  # Mark as completed even on cancellation
             completion_callback(False, None, None, "Speech synthesis canceled")
     except Exception as e:
-        print(f"Exception during speech synthesis: {e}")
+        logger.error(f"Exception during speech synthesis: {e}")
         speech_status["completed"] = True  # Mark as completed on exception
         completion_callback(False, None, None, str(e))
+
 def on_completion(success, start_time, end_time, error_message):
     response = {
         "success": success,
@@ -230,7 +257,7 @@ def index():
         if not place_of_birth:
             errors['place_of_birth'] = 'Place of birth is required.'
         if not dob:
-           errors['dob'] = 'Date of birth is required.'
+            errors['dob'] = 'Date of birth is required.'
         elif not re.match(r'^(0[1-9]|1[0-2])-\d{4}$', dob):
             errors['dob'] = 'Invalid date format. Use mm-yyyy.'
 
@@ -242,10 +269,12 @@ def index():
 
         if horoscope_text is None:
             return jsonify({'error': 'Failed to generate horoscope text.'}), 500
-        print("Horoscope Text:", horoscope_text)
+        logger.info("Horoscope Text: %s", horoscope_text)
 
         # Call speak_text in a new thread with the callback
-        threading.Thread(target=speak_text, args=(horoscope_text, lambda success,start,end,error:  on_completion(success,start,end,error))).start()
+        threading.Thread(target=speak_text,
+                         args=(horoscope_text, lambda success, start, end, error: on_completion(success, start, end,
+                                                                                                error))).start()
         return jsonify({
             "message": "Generating horoscope...",
             "fullText": horoscope_text
@@ -256,14 +285,26 @@ def index():
 def get_speech_status():
     return jsonify(speech_status)
 
+@app.route('/verify_pin', methods=['POST'])
+def verify_pin():
+    data = request.get_json()
+    entered_pin = data.get('pin')
+
+    if entered_pin == PIN:
+        return jsonify({'result': 'success'})
+    else:
+        return jsonify({'result': 'failure'})
+
 @app.route("/start_audio", methods=['POST'])
 def start_audio():
     try:
         data = request.get_json()
-        device_id = int(data['deviceId'])
-        
+        device_id = None
+        if data and 'deviceId' in data:
+          device_id = int(data['deviceId'])
+
         success, message = audio_manager.start_streaming(device_id)
-        
+
         if success:
             devices = sd.query_devices()
             device_name = devices[device_id]['name']
@@ -276,7 +317,7 @@ def start_audio():
                 'success': False,
                 'message': message
             }), 500
-            
+
     except Exception as e:
         return jsonify({
             'success': False,
@@ -309,11 +350,9 @@ def get_devices():
         ]
         return jsonify(input_devices)
     except Exception as e:
+        logger.error(f"Error getting audio devices: {e}")
         return jsonify({'error': str(e)}), 500
 
-    
 if __name__ == "__main__":
-    
-    
     # Run the Flask app
     socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)

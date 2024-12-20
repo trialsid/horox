@@ -9,6 +9,7 @@
       rel="stylesheet"
     />
     <style>
+      /* ... (rest of the CSS, no changes needed here) ... */
       body {
         font-family: "Arial", sans-serif;
         background-color: #f8f9fa;
@@ -312,7 +313,7 @@
     <div class="container">
       <div class="form-card" id="form-container" style="display: none">
         <h2 class="mb-4">Horoscope Input Form</h2>
-        <form id="horoscopeForm" method="post">
+        <form id="horoscopeForm" method="post" action="/">
           <div class="mb-3">
             <label for="name" class="form-label">Name:</label>
             <input
@@ -708,20 +709,34 @@
         .addEventListener("click", function () {
           const enteredPIN = document.getElementById("pin-input").value;
 
-          // Simulate PIN verification (replace with your actual logic)
-          if (enteredPIN === "1234") {
-            // Example: Correct PIN is "1234"
-            // Hide PIN container
-            document.getElementById("pin-container").style.display = "none";
-            // Reset PIN input and error message
-            document.getElementById("pin-input").value = "";
-            document.getElementById("pin-error").textContent = "";
-            // Submit the form
-            submitForm(); // Call submitForm directly, no need to pass anything
-          } else {
-            document.getElementById("pin-error").textContent =
-              "Incorrect PIN. Please try again.";
-          }
+          // Make sure the URL is correct here:
+          fetch("/verify_pin", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ pin: enteredPIN }),
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.result === "success") {
+                // Hide PIN container
+                document.getElementById("pin-container").style.display = "none";
+                // Reset PIN input and error message
+                document.getElementById("pin-input").value = "";
+                document.getElementById("pin-error").textContent = "";
+                // Submit the form
+                submitForm();
+              } else {
+                document.getElementById("pin-error").textContent =
+                  "Incorrect PIN. Please try again.";
+              }
+            })
+            .catch((error) => {
+              console.error("Error verifying PIN:", error);
+              document.getElementById("pin-error").textContent =
+                "Error verifying PIN. Please try again.";
+            });
         });
     </script>
 
