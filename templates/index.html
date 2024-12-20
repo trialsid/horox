@@ -744,6 +744,14 @@
       let audioContext;
       let socket = io();
       let streamStartTime = null;
+
+      window.onload = function () {
+        if (socket && socket.connected) {
+          socket.disconnect();
+        }
+        socket = io();
+      };
+
       let durationInterval = null;
 
       // Initialize audio context
