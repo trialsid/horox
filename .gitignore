@@ -2,3 +2,4 @@ azurettstest.py
 geminitest.py
 .env
 app.log
+/venv
