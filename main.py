@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 PIN = os.environ.get("HOROX_PIN", "1234")  # Get PIN from environment variable or use default
 DEFAULT_AUDIO_DEVICE_ID = 0  # Set a default audio device ID if needed
 
+speech_synthesizer = None
+synthesis_lock = threading.Lock()
+
 class AudioManager:
     def __init__(self):
         self.stream = None
@@ -192,8 +195,10 @@ def get_horoscope(initial_prompt):
         return None
 
 def speak_text(text, completion_callback):
-    global speech_status
-    speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+    global speech_synthesizer
+    with synthesis_lock:
+      if speech_synthesizer is None:
+          speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
     def synthesis_started(evt):
         global speech_status
@@ -204,32 +209,52 @@ def speak_text(text, completion_callback):
 
     def synthesis_completed(evt):
         global speech_status
+        global speech_synthesizer
         end_time = datetime.now()
         speech_status["endTime"] = end_time
         speech_status["completed"] = True  # Mark as completed
         logger.info(f"Speech synthesis completed at {end_time}")
         completion_callback(True, speech_status["startTime"], end_time, None)
+        with synthesis_lock:
+            speech_synthesizer = None
+
+    def synthesis_canceled(evt):
+        global speech_status
+        global speech_synthesizer
+        end_time = datetime.now()
+        speech_status["endTime"] = end_time
+        speech_status["completed"] = True
+        logger.info(f"Speech synthesis canceled at {end_time}")
+        completion_callback(
+            False,
+            speech_status["startTime"],
+            end_time,
+            "Speech synthesis canceled",
+        )
+        with synthesis_lock:
+            speech_synthesizer = None
 
     speech_synthesizer.synthesis_started.connect(synthesis_started)
     speech_synthesizer.synthesis_completed.connect(synthesis_completed)
+    speech_synthesizer.synthesis_canceled.connect(synthesis_canceled)
 
     try:
-        speech_synthesis_result = speech_synthesizer.speak_text_async(text).get()
-
-        if speech_synthesis_result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            logger.info("Speech synthesis completed successfully")
-        elif speech_synthesis_result.reason == speechsdk.ResultReason.Canceled:
-            cancellation_details = speech_synthesis_result.cancellation_details
+        result = speech_synthesizer.speak_text_async(text).get()
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            logger.info("Speech synthesis done")
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
             logger.error(f"Speech synthesis canceled: {cancellation_details.reason}")
-            if cancellation_details.reason == speechsdk.CancellationReason.Error:
-                if cancellation_details.error_details:
-                    logger.error(f"Error details: {cancellation_details.error_details}")
-            speech_status["completed"] = True  # Mark as completed even on cancellation
-            completion_callback(False, None, None, "Speech synthesis canceled")
+            logger.error(f"Error details: {cancellation_details.error_details}")
+            completion_callback(
+                False,
+                speech_status["startTime"],
+                datetime.now(),
+                "Speech synthesis canceled",
+            )
     except Exception as e:
         logger.error(f"Exception during speech synthesis: {e}")
-        speech_status["completed"] = True  # Mark as completed on exception
-        completion_callback(False, None, None, str(e))
+        completion_callback(False, speech_status["startTime"], datetime.now(), str(e))
 
 def on_completion(success, start_time, end_time, error_message):
     response = {
@@ -284,6 +309,20 @@ def index():
 @app.route("/speech_status")
 def get_speech_status():
     return jsonify(speech_status)
+
+@app.route("/stop_speech", methods=["POST"])
+def stop_speech():
+    global speech_synthesizer
+    with synthesis_lock:
+      if speech_synthesizer:
+          try:
+              speech_synthesizer.stop_speaking_async().get()
+              return jsonify({"success": True})
+          except Exception as e:
+              logger.error(f"Error stopping speech synthesis: {e}")
+              return jsonify({"success": False, "error": str(e)})
+      else:
+          return jsonify({"success": False, "error": "Speech synthesis not active"})
 
 @app.route('/verify_pin', methods=['POST'])
 def verify_pin():
