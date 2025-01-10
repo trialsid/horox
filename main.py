@@ -120,10 +120,12 @@ audio_manager = AudioManager()
 @socketio.on('connect')
 def handle_connect():
     logger.info('Client connected')
+    print("DEBUG: Client connected")
 
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info('Client disconnected')
+    print("DEBUG: Client disconnected")
 
 # --- Gemini Setup ---
 try:
@@ -172,7 +174,7 @@ def construct_prompt(name, place_of_birth, dob, problem, occupation):
         prompt_parts.append(f"Occupation: {occupation}")
 
     prompt_parts.append(
-        "\n\nBased on the above information of a person write positive uplifting horoscopy for the user. Write only in Telugu. Include deity references. Advise you give should be practical and progressive. Give negatives and positives concerning the life situation. Mention his horoscope. Go out of the box and give solutions. Write very very short. Compress."
+        "\n\nBased on the above information of a person write positive uplifting horoscopy for the user. Write only in Telugu. Include deity references. Advise you give should be practical and progressive. Give negatives and positives concerning the life situation. Mention his horoscope. Go out of the box and give solutions. Write very very short in 50 words only. Compress."
     )
     return "\n".join(prompt_parts)
 
@@ -268,12 +270,15 @@ def on_completion(success, start_time, end_time, error_message):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    print("DEBUG: Entering index route")
     if request.method == "POST":
         name = request.form.get("name")
         place_of_birth = request.form.get("place_of_birth")
         dob = request.form.get("dob")
         problem = request.form.get("problem")
         occupation = request.form.get("occupation")
+
+        print(f"DEBUG: Received form data - Name: {name}, POB: {place_of_birth}, DOB: {dob}, Problem: {problem}, Occupation: {occupation}")
 
         # Basic server-side validation
         errors = {}
@@ -287,10 +292,14 @@ def index():
             errors['dob'] = 'Invalid date format. Use mm-yyyy.'
 
         if errors:
+            print(f"DEBUG: Validation errors - {errors}")
             return jsonify({'errors': errors}), 400
 
         initial_prompt = construct_prompt(name, place_of_birth, dob, problem, occupation)
+        print(f"DEBUG: Constructed prompt - {initial_prompt}")
+
         horoscope_text = get_horoscope(initial_prompt)
+        print(f"DEBUG: Horoscope text generated - {horoscope_text}")
 
         if horoscope_text is None:
             return jsonify({'error': 'Failed to generate horoscope text.'}), 500
@@ -304,38 +313,50 @@ def index():
             "message": "Generating horoscope...",
             "fullText": horoscope_text
         })
+    print("DEBUG: Rendering index.html")
     return render_template("index.html")
 
 @app.route("/speech_status")
 def get_speech_status():
+    print(f"DEBUG: Speech status requested - {speech_status}")
     return jsonify(speech_status)
 
 @app.route("/stop_speech", methods=["POST"])
 def stop_speech():
+    print("DEBUG: Entering stop_speech route")
     global speech_synthesizer
     with synthesis_lock:
       if speech_synthesizer:
           try:
               speech_synthesizer.stop_speaking_async().get()
+              print("DEBUG: Speech synthesis stopped successfully")
               return jsonify({"success": True})
           except Exception as e:
               logger.error(f"Error stopping speech synthesis: {e}")
+              print(f"DEBUG: Error stopping speech synthesis - {e}")
               return jsonify({"success": False, "error": str(e)})
       else:
+          print("DEBUG: Speech synthesis not active")
           return jsonify({"success": False, "error": "Speech synthesis not active"})
 
 @app.route('/verify_pin', methods=['POST'])
 def verify_pin():
+    print("DEBUG: Entering verify_pin route")
     data = request.get_json()
     entered_pin = data.get('pin')
 
+    print(f"DEBUG: Received PIN - {entered_pin}")
+
     if entered_pin == PIN:
+        print("DEBUG: PIN verification successful")
         return jsonify({'result': 'success'})
     else:
+        print("DEBUG: PIN verification failed")
         return jsonify({'result': 'failure'})
 
 @app.route("/start_audio", methods=['POST'])
 def start_audio():
+    print("DEBUG: Entering start_audio route")
     try:
         data = request.get_json()
         device_id = None
@@ -343,6 +364,7 @@ def start_audio():
           device_id = int(data['deviceId'])
 
         success, message = audio_manager.start_streaming(device_id)
+        print(f"DEBUG: Audio streaming started - Success: {success}, Message: {message}")
 
         if success:
             devices = sd.query_devices()
@@ -358,6 +380,7 @@ def start_audio():
             }), 500
 
     except Exception as e:
+        print(f"DEBUG: Error in start_audio - {e}")
         return jsonify({
             'success': False,
             'message': str(e)
@@ -365,10 +388,13 @@ def start_audio():
 
 @app.route("/stop_audio", methods=['POST'])
 def stop_audio():
+    print("DEBUG: Entering stop_audio route")
     try:
         audio_manager.stop_streaming()
+        print("DEBUG: Audio streaming stopped")
         return jsonify({'success': True})
     except Exception as e:
+        print(f"DEBUG: Error in stop_audio - {e}")
         return jsonify({
             'success': False,
             'message': str(e)
@@ -376,6 +402,7 @@ def stop_audio():
 
 @app.route("/get_devices")
 def get_devices():
+    print("DEBUG: Entering get_devices route")
     try:
         devices = sd.query_devices()
         input_devices = [
@@ -387,9 +414,11 @@ def get_devices():
             for i, dev in enumerate(devices)
             if dev['max_input_channels'] > 0 and dev['hostapi'] == 0
         ]
+        print(f"DEBUG: Retrieved audio devices - {input_devices}")
         return jsonify(input_devices)
     except Exception as e:
         logger.error(f"Error getting audio devices: {e}")
+        print(f"DEBUG: Error in get_devices - {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":

@@ -382,7 +382,6 @@
         }
       }
     </style>
-    <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
   </head>
   <body>
@@ -601,38 +600,9 @@
     </div>
 
     <script>
-      // Hide form and status container initially
-      document.getElementById("form-container").style.display = "none";
-      document.getElementById("status-container").style.display = "none";
-      document.getElementById("listen-details-page").style.display = "none";
-
-      // Start button click handler
-      document
-        .getElementById("start-btn")
-        .addEventListener("click", function () {
-          document.getElementById("start-page").style.display = "none";
-          document.getElementById("choice-page").style.display = "block";
-        });
-
-      // Enter details button click handler
-      document
-        .getElementById("enter-details-btn")
-        .addEventListener("click", function () {
-          document.getElementById("choice-page").style.display = "none";
-          document.getElementById("form-container").style.display = "block";
-        });
-
-      // Listen details button
-      document
-        .getElementById("listen-details-btn")
-        .addEventListener("click", function () {
-          document.getElementById("choice-page").style.display = "none";
-          document.getElementById("listen-details-page").style.display =
-            "block";
-        });
-
-      // New function to reset the UI to its initial state
+      // Function to reset the UI to its initial state
       function resetUI() {
+        console.log("DEBUG: resetUI called");
         // Reset messages
         document.getElementById("nameError").textContent = "";
         document.getElementById("pobError").textContent = "";
@@ -647,47 +617,55 @@
         document.getElementById("error-message-speech").style.display = "none";
         document.getElementById("total-time").style.display = "none";
         document.getElementById("new-start-btn").style.display = "none";
-        document.getElementById("pin-container").style.display = "none";
+        document.getElementById("pin-container").style.display = "";
+        document.getElementById("status-container").style.display = "none";
+        console.log("DEBUG: resetUI - Hiding pin-verification-page");
+        document.getElementById("pin-verification-page").style.display = "none";
+        console.log("DEBUG: resetUI - pin-verification-page hidden");
+
+        // Reset saved form data
+        savedFormData = null;
+        console.log("DEBUG: savedFormData reset");
+        console.log("DEBUG: resetUI completed");
       }
 
-      // Modified resetForm function
+      // Function to reset the form
       function resetForm() {
+        console.log("DEBUG: resetForm called");
         // Navigate to the start page
         document.getElementById("choice-page").style.display = "none";
         document.getElementById("form-container").style.display = "none";
-        document.getElementById("status-container").style.display = "none";
         document.getElementById("listen-details-page").style.display = "none";
-        document.getElementById("pin-verification-page").style.display = "none";
         document.getElementById("start-page").style.display = "block";
 
         // Reset form
         document.getElementById("horoscopeForm").reset();
 
-        // Call the common resetUI function
+        // Call the resetUI function
         resetUI();
+        console.log("DEBUG: resetForm completed");
       }
 
-      // Modified submitForm function
+      // Function to submit the form
       function submitForm() {
+        console.log("DEBUG: submitForm called");
         // Hide form and PIN verification page, show status container
         document.getElementById("form-container").style.display = "none";
         document.getElementById("pin-verification-page").style.display = "none";
         document.getElementById("status-container").style.display = "block";
-
-        // Reset UI elements (using the resetUI function we created earlier)
-        resetUI();
 
         // Show "generating" message
         document.getElementById("message-container").textContent =
           "Generating horoscope...";
 
         // Continue with fetch...
-        // Update the fetch handling in the form submit event listener
+        console.log("DEBUG: Sending form data with fetch");
         fetch("/", {
           method: "POST",
           body: savedFormData, // Use the saved form data
         })
           .then((response) => {
+            console.log("DEBUG: fetch response received", response);
             if (!response.ok) {
               return response.json().then((err) => {
                 throw new Error(JSON.stringify(err));
@@ -695,12 +673,13 @@
             }
             return response.json();
           })
-          // In the fetch handling code
-          // In the fetch handling code within submitForm function
           .then((data) => {
+            console.log("DEBUG: fetch data received", data);
             if (data.error) {
               throw new Error(data.error);
             }
+
+            // --- UI UPDATES BEFORE resetUI() ---
 
             // Truncate text and show remaining count
             const fullText = data.fullText;
@@ -721,16 +700,23 @@
             document.getElementById("message-container").textContent =
               "Horoscope playing...";
 
+            // Make sure the status container is visible
+            document.getElementById("status-container").style.display = "block";
+
+            // --- END OF UI UPDATES ---
+
             // Wait 60 seconds before starting to check status
             setTimeout(() => {
               let checkCount = 0;
-              const maxChecks = 30; // Maximum number of checks (1 minute with 2-second interval)
+              const maxChecks = 60; // Maximum number of checks (1 minute with 2-second interval)
 
               function checkSpeechStatus() {
+                console.log("DEBUG: checkSpeechStatus called");
                 checkCount++;
                 fetch("/speech_status")
                   .then((response) => response.json())
                   .then((statusData) => {
+                    console.log("DEBUG: speech status received", statusData);
                     if (statusData.completed || checkCount >= maxChecks) {
                       // Speech is done or we've reached max checks
                       if (
@@ -738,6 +724,7 @@
                         statusData.startTime &&
                         statusData.endTime
                       ) {
+                        // Update message to "Completed" only after completion
                         document.getElementById(
                           "message-container"
                         ).textContent = "Completed";
@@ -753,6 +740,11 @@
                         )} seconds`;
                         document.getElementById("total-time").style.display =
                           "block";
+                      } else if (checkCount < maxChecks) {
+                        // If not completed, keep the message as "Horoscope playing..."
+                        document.getElementById(
+                          "message-container"
+                        ).textContent = "Horoscope playing...";
                       } else {
                         document.getElementById(
                           "message-container"
@@ -762,11 +754,14 @@
                         "block";
                     } else if (checkCount < maxChecks) {
                       // Check again in 2 seconds
-                      setTimeout(checkSpeechStatus, 2000);
+                      console.log(
+                        "DEBUG: Checking speech status again in 2 seconds"
+                      );
+                      setTimeout(checkSpeechStatus, 3000);
                     }
                   })
                   .catch((error) => {
-                    console.error("Error checking status:", error);
+                    console.error("DEBUG: Error checking status:", error);
                     // Stop checking on error
                     document.getElementById("message-container").textContent =
                       "Playback finished";
@@ -777,25 +772,29 @@
 
               // Start checking status after 60 seconds
               checkSpeechStatus();
-            }, 60000);
+            }, 10000);
           })
           .catch((error) => {
-            console.error("Error:", error);
+            console.error("DEBUG: fetch error", error);
             document.getElementById("message-container").textContent =
               "An error occurred. Please try again.";
             document.getElementById("form-container").style.display = "block";
             document.getElementById("status-container").style.display = "none";
           });
+        console.log("DEBUG: submitForm completed");
       }
 
-      let savedFormData = null; // Variable to store the form data
+      let savedFormData = null;
 
+      // Event listener for 'generate-btn'
       document
         .getElementById("generate-btn")
         .addEventListener("click", function (event) {
+          console.log("DEBUG: generate-btn clicked");
           event.preventDefault();
           let isValid = true;
-          // Form validation (same as before)
+
+          // Form validation
           const nameInput = document.getElementById("name");
           if (!nameInput.value.trim()) {
             document.getElementById("nameError").textContent =
@@ -830,15 +829,19 @@
 
           if (isValid) {
             // Hide the form
+            console.log("DEBUG: generate-btn - Hiding form-container");
             document.getElementById("form-container").style.display = "none";
             // Show the PIN verification page
+            console.log("DEBUG: generate-btn - Showing pin-verification-page");
             document.getElementById("pin-verification-page").style.display =
               "block";
             // Save the form data to the variable
             savedFormData = new FormData(
               document.getElementById("horoscopeForm")
             );
+            console.log("DEBUG: Form data saved", savedFormData);
           } else {
+            console.log("DEBUG: Form validation failed");
             document.getElementById("message-container").textContent =
               "Please fix the errors and try again.";
             document.getElementById("form-container").style.display = "block";
@@ -846,9 +849,11 @@
           }
         });
 
+      // Event listener for 'verify-pin-btn'
       document
         .getElementById("verify-pin-btn")
         .addEventListener("click", function () {
+          console.log("DEBUG: verify-pin-btn clicked");
           const enteredPIN = document.getElementById("pin-input").value;
 
           fetch("/verify_pin", {
@@ -858,8 +863,15 @@
             },
             body: JSON.stringify({ pin: enteredPIN }),
           })
-            .then((response) => response.json())
+            .then((response) => {
+              console.log(
+                "DEBUG: PIN verification response received",
+                response
+              );
+              return response.json();
+            })
             .then((data) => {
+              console.log("DEBUG: PIN verification data received", data);
               if (data.result === "success") {
                 // Hide PIN verification page
                 document.getElementById("pin-verification-page").style.display =
@@ -875,14 +887,45 @@
               }
             })
             .catch((error) => {
-              console.error("Error verifying PIN:", error);
+              console.error("DEBUG: Error verifying PIN:", error);
               document.getElementById("pin-error").textContent =
                 "Error verifying PIN. Please try again.";
             });
         });
-    </script>
 
-    <script>
+      // Hide form and status container initially
+      document.getElementById("form-container").style.display = "none";
+      document.getElementById("status-container").style.display = "none";
+      document.getElementById("listen-details-page").style.display = "none";
+
+      // Start button click handler
+      document
+        .getElementById("start-btn")
+        .addEventListener("click", function () {
+          console.log("DEBUG: start-btn clicked");
+          document.getElementById("start-page").style.display = "none";
+          document.getElementById("choice-page").style.display = "block";
+        });
+
+      // Enter details button click handler
+      document
+        .getElementById("enter-details-btn")
+        .addEventListener("click", function () {
+          console.log("DEBUG: enter-details-btn clicked");
+          document.getElementById("choice-page").style.display = "none";
+          document.getElementById("form-container").style.display = "block";
+        });
+
+      // Listen details button
+      document
+        .getElementById("listen-details-btn")
+        .addEventListener("click", function () {
+          console.log("DEBUG: listen-details-btn clicked");
+          document.getElementById("choice-page").style.display = "none";
+          document.getElementById("listen-details-page").style.display =
+            "block";
+        });
+
       let audioContext;
       let socket = io();
       let streamStartTime = null;
@@ -929,6 +972,7 @@
       document
         .getElementById("start-stream-btn")
         .addEventListener("click", async () => {
+          console.log("DEBUG: start-stream-btn clicked");
           try {
             // Get available devices
             const response = await fetch("/get_devices");
@@ -958,6 +1002,7 @@
 
       // Device selection handler
       async function selectDevice(deviceId) {
+        console.log("DEBUG: selectDevice called with deviceId", deviceId);
         try {
           const response = await fetch("/start_audio", {
             method: "POST",
@@ -994,6 +1039,7 @@
       document
         .getElementById("stop-stream-btn")
         .addEventListener("click", async () => {
+          console.log("DEBUG: stop-stream-btn clicked");
           try {
             const response = await fetch("/stop_audio", { method: "POST" });
             const result = await response.json();
@@ -1017,8 +1063,8 @@
         });
 
       // Audio stream handling
-      // Audio stream handling
       socket.on("audio_stream", function (data) {
+        console.log("DEBUG: audio_stream event received");
         if (!audioContext) return;
 
         // Convert int16 audio data to float32
