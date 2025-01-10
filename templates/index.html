@@ -513,7 +513,7 @@
         <button
           id="kill-switch-btn"
           class="btn btn-danger"
-          style="display: none; margin-top: 15px"
+          style="margin-top: 15px"
         >
           Stop Horoscope
         </button>
@@ -1092,6 +1092,44 @@
         source.buffer = buffer;
         source.connect(audioContext.destination);
         source.start();
+      });
+
+      // Kill switch functionality
+      document
+        .getElementById("kill-switch-btn")
+        .addEventListener("click", function () {
+          console.log("DEBUG: kill-switch-btn clicked");
+          // Show the confirmation modal
+          var confirmStopModal = new bootstrap.Modal(
+            document.getElementById("confirm-stop-modal")
+          );
+          confirmStopModal.show();
+        });
+
+      document
+        .getElementById("confirm-stop-btn")
+        .addEventListener("click", function () {
+          console.log("DEBUG: confirm-stop-btn clicked");
+          socket.emit("stop_process");
+          // Hide the modal
+          var confirmStopModal = bootstrap.Modal.getInstance(
+            document.getElementById("confirm-stop-modal")
+          );
+          confirmStopModal.hide();
+
+          // Update UI immediately to reflect the stop action
+          document.getElementById("message-container").textContent =
+            "Stopping horoscope...";
+          document.getElementById("playing-message").style.display = "none";
+          document.getElementById("kill-switch-btn").style.display = "none"; // Hide the stop button again
+        });
+
+      socket.on("process_killed", function (data) {
+        console.log("DEBUG: process_killed event received", data);
+        document.getElementById("message-container").textContent = data.message;
+        document.getElementById("new-start-btn").style.display =
+          data.show_start_again ? "block" : "none";
+        document.getElementById("total-time").style.display = "none";
       });
     </script>
 

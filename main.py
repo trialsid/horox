@@ -34,6 +34,8 @@ DEFAULT_AUDIO_DEVICE_ID = 0  # Set a default audio device ID if needed
 
 speech_synthesizer = None
 synthesis_lock = threading.Lock()
+kill_flag = threading.Event()  # Add kill flag
+current_horoscope_text = ""  # Initialize current_horoscope_text
 
 class AudioManager:
     def __init__(self):
@@ -127,6 +129,24 @@ def handle_disconnect():
     logger.info('Client disconnected')
     print("DEBUG: Client disconnected")
 
+@socketio.on('stop_process')  # Add stop_process handler
+def handle_stop_process():
+    global kill_flag
+    global current_horoscope_text
+    logger.info("Kill switch activated")
+    kill_flag.set()  # Activate the kill flag
+
+    stop_speech()
+
+    # Reset current_horoscope_text to empty string
+    current_horoscope_text = ""
+
+    # Emit a message to the client to update the UI
+    socketio.emit('process_killed', {
+        'message': 'Process ended abruptly',
+        'show_start_again': True
+    })
+
 # --- Gemini Setup ---
 try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -142,7 +162,7 @@ generation_config = {
     "response_mime_type": "text/plain",
 }
 
-speech_status = {"completed": False, "startTime": None, "endTime": None}
+speech_status = {"completed": False, "startTime": None, "endTime": None, "interrupted": False} # Add "interrupted" status
 
 model = genai.GenerativeModel(
     model_name="gemini-exp-1206",
@@ -198,6 +218,7 @@ def get_horoscope(initial_prompt):
 
 def speak_text(text, completion_callback):
     global speech_synthesizer
+    global kill_flag
     with synthesis_lock:
       if speech_synthesizer is None:
           speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
@@ -207,6 +228,7 @@ def speak_text(text, completion_callback):
         start_time = datetime.now()
         speech_status["startTime"] = start_time
         speech_status["completed"] = False
+        speech_status["interrupted"] = False # Reset interrupted flag
         logger.info(f"Speech synthesis started at {start_time}")
 
     def synthesis_completed(evt):
@@ -239,6 +261,12 @@ def speak_text(text, completion_callback):
     speech_synthesizer.synthesis_started.connect(synthesis_started)
     speech_synthesizer.synthesis_completed.connect(synthesis_completed)
     speech_synthesizer.synthesis_canceled.connect(synthesis_canceled)
+
+    if kill_flag.is_set():
+        logger.info("Kill flag is set before starting TTS")
+        completion_callback(False, None, None, "TTS skipped due to user interruption")
+        kill_flag.clear()  # Reset the flag
+        return
 
     try:
         result = speech_synthesizer.speak_text_async(text).get()
@@ -298,20 +326,24 @@ def index():
         initial_prompt = construct_prompt(name, place_of_birth, dob, problem, occupation)
         print(f"DEBUG: Constructed prompt - {initial_prompt}")
 
-        horoscope_text = get_horoscope(initial_prompt)
-        print(f"DEBUG: Horoscope text generated - {horoscope_text}")
+        global current_horoscope_text
+        current_horoscope_text = get_horoscope(initial_prompt)
+        print(f"DEBUG: Horoscope text generated - {current_horoscope_text}")
 
-        if horoscope_text is None:
+        if current_horoscope_text is None:
             return jsonify({'error': 'Failed to generate horoscope text.'}), 500
-        logger.info("Horoscope Text: %s", horoscope_text)
+        logger.info("Horoscope Text: %s", current_horoscope_text)
+
+        global kill_flag
+        kill_flag.clear() # Ensure the kill flag is clear before starting
 
         # Call speak_text in a new thread with the callback
         threading.Thread(target=speak_text,
-                         args=(horoscope_text, lambda success, start, end, error: on_completion(success, start, end,
+                         args=(current_horoscope_text, lambda success, start, end, error: on_completion(success, start, end,
                                                                                                 error))).start()
         return jsonify({
             "message": "Generating horoscope...",
-            "fullText": horoscope_text
+            "fullText": current_horoscope_text
         })
     print("DEBUG: Rendering index.html")
     return render_template("index.html")
@@ -325,11 +357,12 @@ def get_speech_status():
 def stop_speech():
     print("DEBUG: Entering stop_speech route")
     global speech_synthesizer
+    global speech_status
     with synthesis_lock:
       if speech_synthesizer:
           try:
               speech_synthesizer.stop_speaking_async().get()
-              print("DEBUG: Speech synthesis stopped successfully")
+              speech_status["interrupted"] = True  # Set the interrupted flag
               return jsonify({"success": True})
           except Exception as e:
               logger.error(f"Error stopping speech synthesis: {e}")
